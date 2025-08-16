@@ -1,45 +1,38 @@
-const print = @import("std").debug.print;
-const windows = @import("std").os.windows;
 const std = @import("std");
+const windows = std.os.windows;
+const print = std.debug.print;
 
-extern "kernel32" fn GetModuleHandleA(
-  Name: ?windows.LPCSTR
-) callconv(.winapi) windows.HMODULE;
-
-extern "user32" fn MessageBoxA(
-  HWND: ?windows.HWND,
-  Text: ?windows.LPCSTR,
-  Caption: ?windows.LPCSTR,
-  Type: windows.UINT
-) callconv(.winapi) c_int;
-
-var OriginalBytes: [12]u8 = undefined;
-var Function: *fn([*:0]const u8) bool = undefined;
-var FunctionSlice: *[12]u8 = undefined;
-var OldProtect: u32 = 0;
-
-fn MyHook(Password: [*:0]const u8) bool {
-  const Formatted = std.fmt.allocPrintZ(std.heap.page_allocator, "Don't forget password: {s}", .{Password}) catch {print("Out of Memory!", .{}); return false;};
-  _ = MessageBoxA(null, Formatted, "Finaly works", 0); 
-  RevertInsert();
-  const Return = Function(Password);
-  InsertJumpToHook();
-  return Return;
+pub export fn MyHook(_: [*:0]const u8) bool {
+  return true;
 }
 
 var ShellCode: [12]u8 = .{
-  0x48, 0xB8,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0xFF, 0xE0
+  0x48, 0xB8,             // mov rax, imm64
+  0x00, 0x00, 0x00, 0x00, // нижні 4 байти адреси
+  0x00, 0x00, 0x00, 0x00, // верхні 4 байти адреси
+  0xFF, 0xE0              // jmp rax
 };
-
+var oldProtect: u32 = 0;
+var OriginalBytes: [12]u8 = undefined;
+const FunctionSize: usize = 80;
 const Pattern: [18]u8 = .{
-  0x55, 0x48, 0x83, 0xEC, 0x50, 0x48, 0x8D, 0x6C,
-  0x24, 0x50, 0x48, 0x89, 0x4D, 0xE0, 0x48, 0x89,
-  0x55, 0xE8
+  0x55, 0x48, 0x83, 0xEC, 0x50, 0x48, 0x8D,
+  0x6C, 0x24, 0x50, 0x48, 0x89, 0x4D, 0xE0,
+  0x48, 0x89, 0x55, 0xE8,
 };
+var Function: *fn([*:0]const u8) bool = undefined;
 
-fn findFunctionMemory() ?[*]u8 {
+var FoundMemory: ?[]u8 = undefined;
+
+fn injectCode() void {
+  @memcpy(FoundMemory.?[0..12], &ShellCode);
+}
+
+fn revertCode() void {
+  @memcpy(FoundMemory.?[0..12], &OriginalBytes);
+}
+
+fn findFunctionMemory() ?[]u8 {
   var Address: usize = 0;
   var LocalMemoryPosition: usize = 0;
   var LocalPatternPosition: usize = 0;
@@ -92,7 +85,7 @@ fn findFunctionMemory() ?[*]u8 {
           }
 
           if (Equal == Pattern.len) {
-            return Memory[LocalMemoryPosition..];
+            return Memory[LocalMemoryPosition..LocalMemoryPosition + 80];
           }
           LocalMemoryPosition += 1;
         } else {
@@ -107,49 +100,61 @@ fn findFunctionMemory() ?[*]u8 {
   return null;
 }
 
-fn InsertJumpToHook() void {
-  @memcpy(FunctionSlice, &ShellCode);
-}
-
-fn RevertInsert() void {
-  @memcpy(FunctionSlice, &OriginalBytes);
-}
-
-pub export fn DllMain(_: windows.HINSTANCE, Reason: windows.DWORD, _: windows.LPVOID) windows.BOOL {
+pub export fn DllMain(_: std.os.windows.HINSTANCE, Reason: u32, _: *anyopaque) c_int {
   switch (Reason) {
+    // Attached to process
     1 => {
-      _ = MessageBoxA(null, "In Program!", "Hecker:D",0);
-      const Countainer = findFunctionMemory();
-      if (Countainer == null) {
-        print("Didn't find the function!\n", .{});
+      FoundMemory = findFunctionMemory();
+      if (FoundMemory == null) {
+        print("Found null memory!\n", .{});
         return 2;
-      } else {
-        Function = @ptrCast(Countainer.?);
       }
-      FunctionSlice = @ptrCast(Function);
 
-      const ShellSlice: *u64 = @alignCast(@ptrCast(ShellCode[2..10]));
+      Function = @ptrCast(FoundMemory.?);
+      if (Function("hunter2") == true) {print("It's hunter2\n", .{});}
+
+      @memcpy(&OriginalBytes, FoundMemory.?[0..12]);
+      const ShellSlice: *usize = @alignCast(@ptrCast(ShellCode[2..10]));
       ShellSlice.* = @intFromPtr(&MyHook);
-      @memcpy(&OriginalBytes, FunctionSlice);
-      print("Wrote Original bytes? {}\n", .{OriginalBytes[0] != 0});
+      print("MyHook: {*}\n", .{&MyHook});
+
+      print("ShellCode: \n", .{});
+      for (ShellCode) |Byte| {
+        print("0x{X}, ", .{Byte});
+      }
+      print ("\n", .{});
       
-      windows.VirtualProtect(FunctionSlice, 12, windows.PAGE_EXECUTE_READWRITE, &OldProtect) catch |err| switch(err) {
-        error.InvalidAddress => {
-          print("Invalid address", .{});
-          return 4;
-        },
-        error.Unexpected => {
-          print("Other", .{});
-          return 5;
+      windows.VirtualProtect(@ptrCast(FoundMemory.?), FunctionSize, windows.PAGE_EXECUTE_READWRITE, &oldProtect) catch |err| {
+        switch (err) {
+          error.InvalidAddress => {print("InvalidAddress error when applying new protection!\n", .{}); return 3;},
+          error.Unexpected => {print("Unexpected error when applying new protection!\n", .{}); return 4;}
         }
       };
-
-      InsertJumpToHook();
-      return 0;
+      injectCode();
+      
+      return 1; // True in windows C
     },
+    // Detached from process
     0 => {
-      return 0;
+      revertCode();
+      windows.VirtualProtect(@ptrCast(FoundMemory.?), FunctionSize, oldProtect, &oldProtect) catch |err| {
+      switch (err) {
+        error.InvalidAddress => {print("InvalidAddress error when applying old protection!\n", .{}); return 3;},
+        error.Unexpected => {print("Unexpected error when applying old protection!\n", .{}); return 4;}
+      }
+    };
+      return 1;
     },
-    else => {return 0;}
+    // Attached to thread
+    2 => {
+      return 1;
+    },
+    // Detached from thread
+    3 => {
+      return 1;
+    },
+    else => {
+      return 0;
+    }
   }
 }
