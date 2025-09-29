@@ -1,6 +1,7 @@
 const std = @import("std");
 const windows = std.os.windows;
 const print = std.debug.print;
+var File: windows.HANDLE = windows.INVALID_HANDLE_VALUE;
 
 pub export fn MyHook(_: [*:0]const u8) bool {
   return true;
@@ -14,11 +15,9 @@ var ShellCode: [12]u8 = .{
 };
 var oldProtect: u32 = 0;
 var OriginalBytes: [12]u8 = undefined;
-const FunctionSize: usize = 80;
-const Pattern: [18]u8 = .{
-  0x55, 0x48, 0x83, 0xEC, 0x50, 0x48, 0x8D,
-  0x6C, 0x24, 0x50, 0x48, 0x89, 0x4D, 0xE0,
-  0x48, 0x89, 0x55, 0xE8,
+const FunctionSize: usize = 64;
+const Pattern: [11]u8 = .{
+  0x55, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8d, 0x6c, 0x24, 0x30, 0xe8
 };
 var Function: *fn([*:0]const u8) bool = undefined;
 
@@ -117,12 +116,7 @@ pub export fn DllMain(_: std.os.windows.HINSTANCE, Reason: u32, _: *anyopaque) c
       const ShellSlice: *usize = @alignCast(@ptrCast(ShellCode[2..10]));
       ShellSlice.* = @intFromPtr(&MyHook);
       print("MyHook: {*}\n", .{&MyHook});
-
-      print("ShellCode: \n", .{});
-      for (ShellCode) |Byte| {
-        print("0x{X}, ", .{Byte});
-      }
-      print ("\n", .{});
+      print("My Hook in shellcode: 0x{X}\n", .{ShellSlice.*});
       
       windows.VirtualProtect(@ptrCast(FoundMemory.?), FunctionSize, windows.PAGE_EXECUTE_READWRITE, &oldProtect) catch |err| {
         switch (err) {
@@ -132,10 +126,12 @@ pub export fn DllMain(_: std.os.windows.HINSTANCE, Reason: u32, _: *anyopaque) c
       };
       injectCode();
       
+      print("Ready!\n", .{});
       return 1; // True in windows C
     },
     // Detached from process
     0 => {
+      print("Detaching!\n", .{});
       revertCode();
       windows.VirtualProtect(@ptrCast(FoundMemory.?), FunctionSize, oldProtect, &oldProtect) catch |err| {
       switch (err) {

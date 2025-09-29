@@ -14,7 +14,6 @@ fn validate_password(pw: [*:0]const u8) bool {
 }
 
 pub fn main() !void {
-  _ = MessageBoxA(null, "Hello, this is a program speaking!", "Greetings", 0);
   const allocator = std.heap.page_allocator;
 
   const args = try std.process.argsAlloc(allocator);

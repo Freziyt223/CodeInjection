@@ -33,7 +33,9 @@ const InjectError = error{
   ThreadError,
   ResumeError
 };
+
 pub fn main() !void {
+
   const TargetPath =  try std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, "C:\\Programming\\Code Injection\\Binaries\\TestApp.exe");
   const CMDL = try std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, "C:\\Programming\\Code Injection\\Binaries\\TestApp.exe heh");
 
@@ -76,6 +78,7 @@ pub fn main() !void {
   }
 
   const Thread = CreateRemoteThreadEx(ProcessInfo.hProcess, null, 0, @ptrCast(LoadLibraryAddress.?), @ptrCast(Pointer.?), 0, null, null);
+  defer std.os.windows.CloseHandle(Thread.?);
   if (Thread == null) {
     print("Can't create thread, error is: {}!\n", .{std.os.windows.GetLastError()});
     return error.ThreadError;
