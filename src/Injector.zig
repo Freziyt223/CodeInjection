@@ -35,7 +35,7 @@ const InjectError = error{
 };
 pub fn main() !void {
   const TargetPath =  try std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, "C:\\Programming\\Code Injection\\Binaries\\TestApp.exe");
-  const CMDL = try std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, "C:\\Programming\\Code Injection\\Binaries\\TestApp.exe heh");
+  const CMDL = try std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, "\"C:\\Programming\\Code Injection\\Binaries\\TestApp.exe\" hh");
 
   const CreateFlags: std.os.windows.CreateProcessFlags = .{
     .create_suspended = true

