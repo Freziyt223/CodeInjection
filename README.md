@@ -1,5 +1,3 @@
-Later i will write all of this for C(which will be easier) but i just like Zig a lot
-
 Hello there!
 To test the program first compile it all with `zig build` command
 Then open Binaries/TestApp in disassembler and find the function which uses "hunter2" password(string), then open it in hexdump and copy first 18 bytes from byte 0x55 to byte 0xE8, put them into `const Pattern` and then just run Binaries/Injector.exe
